@@ -1,0 +1,16 @@
+# Core web framework
+Flask>=3.0.0
+
+# Data & ML stack
+pydantic>=2.0.0
+numpy>=1.26.0
+pandas>=2.0.0
+scikit-learn>=1.4.0
+joblib>=1.3.0
+
+# Optional: for running production server (instead of flask's built-in dev server)
+gunicorn>=21.0.0
+
+# Testing
+pytest>=8.0.0
+requests>=2.32.0
