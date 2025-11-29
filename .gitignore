@@ -1,0 +1,82 @@
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+downloads/
+eggs/
+.eggs/
+*.egg-info/
+*.egg
+pip-wheel-metadata/
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints
+
+# Pyenv
+.python-version
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment / secrets
+.env
+.env.*
+*.env
+
+# Logs
+*.log
+
+# Long-Term Memory (runtime cache)
+ltm/records/
+ltm/ltm_index.json
+
+# Model artifacts (trained models) - keep these out of VCS
+data/models/*.pkl
+
+# Generic binary/data artifacts
+*.db
+*.sqlite3
+
+# Ignore python compiled artifacts sometimes produced
+*.pyc
+*.pyo
+*.pyd
+
+# Misc
+coverage.xml
+pip-log.txt
+__pycache__/
