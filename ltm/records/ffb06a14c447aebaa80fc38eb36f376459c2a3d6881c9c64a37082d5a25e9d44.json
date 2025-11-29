@@ -1,0 +1,1 @@
+{"priority": "medium", "confidence": 0.9256898476857353, "explanation": "Predicted MEDIUM priority with confidence 0.93 using the trained model. Detected medium-urgency words in the text: this week.", "raw_text_length": 90, "metadata_used": ["sender", "subject"]}

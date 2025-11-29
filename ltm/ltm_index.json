@@ -1,1 +1,1 @@
-{"test.intent:some text": "9741ebe8b582131176cd4df77c3ecbbb538785f0412ee7f6f976ce96123182a9.json"}
+{"test.intent:some text": "9741ebe8b582131176cd4df77c3ecbbb538785f0412ee7f6f976ce96123182a9.json", "email.priority.classify:We have a critical situation: the production server is down and needs immediate attention.": "aded8f8caca98fd57fe36f5a4a0ad691fdd684fdcb85098dcaa1b5f3865e1025.json", "email.priority.classify:Please review the attached design document sometime this week so we can finalize the plan.": "ffb06a14c447aebaa80fc38eb36f376459c2a3d6881c9c64a37082d5a25e9d44.json"}

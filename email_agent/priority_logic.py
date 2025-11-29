@@ -1,4 +1,4 @@
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 from .models import Priority
 from .config import MODEL_PATH
@@ -7,6 +7,15 @@ from .utils.logging_utils import get_logger
 logger = get_logger(__name__)
 
 _MODEL = None  # lazy-loaded scikit-learn pipeline
+
+# Simple keyword groups for explanation
+URGENT_KEYWORDS = ["urgent", "asap", "immediately", "deadline", "critical", "today"]
+MEDIUM_KEYWORDS = ["soon", "important", "priority", "reminder", "this week"]
+CASUAL_KEYWORDS = ["memes", "photos", "fun", "joke", "newsletter"]
+
+# Simple metadata-based signals
+IMPORTANT_SENDER_HINTS = ["boss", "manager", "hod", "coordinator"]
+IMPORTANT_SUBJECT_HINTS = ["exam", "deadline", "submission", "project", "meeting"]
 
 
 def _load_model_if_needed() -> None:
@@ -31,33 +40,152 @@ def _load_model_if_needed() -> None:
         _MODEL = None
 
 
-def _rule_based_classify(text: str) -> Dict[str, Any]:
+def _find_keywords(text: str, keywords: List[str]) -> List[str]:
+    lower = text.lower()
+    return [kw for kw in keywords if kw in lower]
+
+
+def _inspect_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """
-    Simple keyword-based classifier used as a fallback and baseline.
+    Look at sender/subject and return simple signals we can mention in explanations.
+    """
+    signals: Dict[str, Any] = {
+        "important_sender": False,
+        "important_subject": False,
+        "sender_match": None,
+        "subject_match": None,
+    }
+    if not metadata:
+        return signals
+
+    sender = str(metadata.get("sender", "")).lower()
+    subject = str(metadata.get("subject", "")).lower()
+
+    for hint in IMPORTANT_SENDER_HINTS:
+        if hint in sender:
+            signals["important_sender"] = True
+            signals["sender_match"] = hint
+            break
+
+    for hint in IMPORTANT_SUBJECT_HINTS:
+        if hint in subject:
+            signals["important_subject"] = True
+            signals["subject_match"] = hint
+            break
+
+    return signals
+
+
+def _build_explanation_from_signals(
+    priority: str,
+    confidence: float,
+    text: str,
+    used_model: bool,
+    urgent_hits: List[str],
+    medium_hits: List[str],
+    casual_hits: List[str],
+    meta_signals: Dict[str, Any],
+) -> str:
+    """
+    Turn the raw signals into a human-readable explanation string.
+
+    Requirements:
+    - Do NOT use the word "Predicted".
+    - Confidence score should appear at the END of the explanation.
+    - Include a tag indicating whether ML model or rule-based logic was used.
+    - Keep detected words/phrases in the explanation.
+    """
+    parts: List[str] = []
+
+    # 1) Base line: where the decision came from (no "predicted")
+    if used_model:
+        parts.append(f"Priority classified as {priority.upper()} using the trained model.")
+        tag = "[TAG: ML_MODEL]"
+    else:
+        parts.append(f"Priority classified as {priority.upper()} using rule-based heuristics.")
+        tag = "[TAG: RULE_BASED]"
+
+    # 2) Text-based signals
+    if urgent_hits:
+        parts.append(f"Detected high-urgency words in the text: {', '.join(urgent_hits)}.")
+    elif medium_hits:
+        parts.append(f"Detected medium-urgency words in the text: {', '.join(medium_hits)}.")
+    elif casual_hits:
+        parts.append(f"Detected casual/non-urgent words in the text: {', '.join(casual_hits)}.")
+
+    # 3) Metadata-based signals
+    if meta_signals.get("important_sender"):
+        parts.append(
+            "Sender appears important (matched hint: "
+            f"{meta_signals.get('sender_match')})."
+        )
+    if meta_signals.get("important_subject"):
+        parts.append(
+            "Subject contains important hint: "
+            f"{meta_signals.get('subject_match')}."
+        )
+
+    # 4) Fallback if nothing else was found
+    if len(parts) == 1:
+        # only base-line explanation so far
+        parts.append("No specific urgency or metadata hints were detected in this email.")
+
+    # Join all explanation parts, then append tag and confidence at the end
+    explanation_core = " ".join(parts)
+
+    # Confidence must be at the end of the explanation string
+    explanation = f"{explanation_core} {tag} Confidence={confidence:.2f}."
+
+    return explanation
+
+
+def _rule_based_classify(text: str, metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Simple keyword-based classifier used as a fallback and baseline,
+    but now with better explanations.
     """
     if text is None:
         text = ""
     lower = text.lower()
 
-    if any(word in lower for word in ["urgent", "asap", "immediately", "deadline"]):
+    urgent_hits = _find_keywords(lower, URGENT_KEYWORDS)
+    medium_hits = _find_keywords(lower, MEDIUM_KEYWORDS)
+    casual_hits = _find_keywords(lower, CASUAL_KEYWORDS)
+    meta_signals = _inspect_metadata(metadata)
+
+    # Decide priority
+    if urgent_hits or meta_signals.get("important_subject") or meta_signals.get("important_sender"):
         priority = Priority.HIGH.value
         confidence = 0.90
-        explanation = "Detected high-urgency keywords in the email text."
-    elif any(word in lower for word in ["soon", "important", "priority"]):
+    elif medium_hits:
         priority = Priority.MEDIUM.value
         confidence = 0.75
-        explanation = "Detected medium-priority keywords in the email text."
     else:
         priority = Priority.LOW.value
         confidence = 0.60
-        explanation = "No urgency keywords detected; defaulted to low priority."
 
-    return {
+    explanation = _build_explanation_from_signals(
+        priority=priority,
+        confidence=confidence,
+        text=text,
+        used_model=False,
+        urgent_hits=urgent_hits,
+        medium_hits=medium_hits,
+        casual_hits=casual_hits,
+        meta_signals=meta_signals,
+    )
+
+    result: Dict[str, Any] = {
         "priority": priority,
         "confidence": confidence,
         "explanation": explanation,
         "raw_text_length": len(text),
     }
+
+    if metadata:
+        result["metadata_used"] = list(metadata.keys())
+
+    return result
 
 
 def classify_email(
@@ -71,26 +199,44 @@ def classify_email(
     Behaviour:
     1. Try to use the trained scikit-learn model (if available).
     2. If the model is missing or fails, fall back to rule-based classification.
+    3. In both cases, produce a meaningful explanation using signals from
+       text and metadata.
     """
     if text is None:
         text = ""
 
+    # Analyse text/metadata for explanation signals (works for both ML and rules)
+    urgent_hits = _find_keywords(text, URGENT_KEYWORDS)
+    medium_hits = _find_keywords(text, MEDIUM_KEYWORDS)
+    casual_hits = _find_keywords(text, CASUAL_KEYWORDS)
+    meta_signals = _inspect_metadata(metadata)
+
     # Try ML model first
     _load_model_if_needed()
+    used_model = False
 
     if _MODEL is not None:
         try:
-            # _MODEL is a Pipeline: [TfidfVectorizer, LogisticRegression]
             y_pred = _MODEL.predict([text])[0]
+            priority = str(y_pred)
 
-            # Try to get a confidence score if predict_proba is available
             confidence = 0.8
             if hasattr(_MODEL, "predict_proba"):
                 proba = _MODEL.predict_proba([text])[0]
                 confidence = float(max(proba))
 
-            priority = str(y_pred)  # expected to be "high" / "medium" / "low"
-            explanation = "Predicted by trained ML model."
+            used_model = True
+
+            explanation = _build_explanation_from_signals(
+                priority=priority,
+                confidence=confidence,
+                text=text,
+                used_model=used_model,
+                urgent_hits=urgent_hits,
+                medium_hits=medium_hits,
+                casual_hits=casual_hits,
+                meta_signals=meta_signals,
+            )
 
             result: Dict[str, Any] = {
                 "priority": priority,
@@ -107,8 +253,5 @@ def classify_email(
         except Exception:
             logger.exception("ML model failed during classification; falling back to rules.")
 
-    # Fallback: rule-based classification
-    result = _rule_based_classify(text)
-    if metadata:
-        result["metadata_used"] = list(metadata.keys())
-    return result
+    # Fallback: rule-based classification (still with detailed explanation)
+    return _rule_based_classify(text, metadata)
