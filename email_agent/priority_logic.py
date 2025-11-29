@@ -6,15 +6,12 @@ from .utils.logging_utils import get_logger
 
 logger = get_logger(__name__)
 
-# Placeholder for a future loaded ML model (scikit-learn)
-_MODEL = None
+_MODEL = None  # lazy-loaded scikit-learn pipeline
 
 
 def _load_model_if_needed() -> None:
     """
     Lazy-load the ML model from disk, if present.
-    For now, this is optional and can be left unimplemented
-    until you train and save a real model.
     """
     global _MODEL
     if _MODEL is not None:
@@ -28,32 +25,19 @@ def _load_model_if_needed() -> None:
         import joblib
 
         _MODEL = joblib.load(MODEL_PATH)
-        logger.info("Loaded model from %s", MODEL_PATH)
+        logger.info("Loaded email priority model from %s", MODEL_PATH)
     except Exception:
         logger.exception("Failed to load trained model from %s; using fallback.", MODEL_PATH)
         _MODEL = None
 
 
-def classify_email(
-    text: str,
-    metadata: Optional[Dict[str, Any]] = None,
-    context: Optional[Any] = None,
-) -> Dict[str, Any]:
+def _rule_based_classify(text: str) -> Dict[str, Any]:
     """
-    Top-level function used by app.py to classify an email.
-
-    Current behaviour:
-    - Uses a simple keyword rule-based classifier.
-    - Later, you can:
-      - Load the ML model via _load_model_if_needed()
-      - Extract features from text/metadata
-      - Predict priority via model
+    Simple keyword-based classifier used as a fallback and baseline.
     """
     if text is None:
         text = ""
     lower = text.lower()
-
-    # --- Simple rule-based fallback classifier ---
 
     if any(word in lower for word in ["urgent", "asap", "immediately", "deadline"]):
         priority = Priority.HIGH.value
@@ -68,15 +52,63 @@ def classify_email(
         confidence = 0.60
         explanation = "No urgency keywords detected; defaulted to low priority."
 
-    result: Dict[str, Any] = {
+    return {
         "priority": priority,
         "confidence": confidence,
         "explanation": explanation,
         "raw_text_length": len(text),
     }
 
-    # You can optionally add metadata/context echoes for debugging
+
+def classify_email(
+    text: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    context: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """
+    Top-level function used by app.py to classify an email.
+
+    Behaviour:
+    1. Try to use the trained scikit-learn model (if available).
+    2. If the model is missing or fails, fall back to rule-based classification.
+    """
+    if text is None:
+        text = ""
+
+    # Try ML model first
+    _load_model_if_needed()
+
+    if _MODEL is not None:
+        try:
+            # _MODEL is a Pipeline: [TfidfVectorizer, LogisticRegression]
+            y_pred = _MODEL.predict([text])[0]
+
+            # Try to get a confidence score if predict_proba is available
+            confidence = 0.8
+            if hasattr(_MODEL, "predict_proba"):
+                proba = _MODEL.predict_proba([text])[0]
+                confidence = float(max(proba))
+
+            priority = str(y_pred)  # expected to be "high" / "medium" / "low"
+            explanation = "Predicted by trained ML model."
+
+            result: Dict[str, Any] = {
+                "priority": priority,
+                "confidence": confidence,
+                "explanation": explanation,
+                "raw_text_length": len(text),
+            }
+
+            if metadata:
+                result["metadata_used"] = list(metadata.keys())
+
+            return result
+
+        except Exception:
+            logger.exception("ML model failed during classification; falling back to rules.")
+
+    # Fallback: rule-based classification
+    result = _rule_based_classify(text)
     if metadata:
         result["metadata_used"] = list(metadata.keys())
-
     return result
