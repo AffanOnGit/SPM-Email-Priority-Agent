@@ -20,4 +20,5 @@ ENV PYTHONUNBUFFERED=1
 EXPOSE 8000
 
 # Use gunicorn to run the Flask app (app:app = app.py's 'app' object)
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "app:app"]
+CMD ["gunicorn", "-b", "0.0.0.0:10000", "app:app"]
+
