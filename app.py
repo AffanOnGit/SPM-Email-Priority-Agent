@@ -121,7 +121,8 @@ def handle() -> tuple:
             request_id=agent_request.request_id,
             agent_name=AGENT_NAME,
             status="success",
-            output=result_payload,
+            # NEST the result payload under "result"
+            output={"result": result_payload},
             error=None,
         )
         return jsonify(agent_response.model_dump()), 200
