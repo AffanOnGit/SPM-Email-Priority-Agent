@@ -188,6 +188,69 @@ def _rule_based_classify(text: str, metadata: Optional[Dict[str, Any]]) -> Dict[
     return result
 
 
+def format_human_readable_response(
+    priority: str,
+    confidence: float,
+    explanation: str,
+    metadata: Optional[Dict[str, Any]] = None,
+    text_length: int = 0,
+) -> str:
+    """
+    Format the classification result into a human-readable summary.
+    
+    Returns a nicely formatted string that's easy to read and understand.
+    """
+    priority_upper = priority.upper()
+    confidence_percent = int(confidence * 100)
+    
+    # Determine confidence level description
+    if confidence >= 0.85:
+        confidence_desc = "Very High"
+    elif confidence >= 0.70:
+        confidence_desc = "High"
+    elif confidence >= 0.60:
+        confidence_desc = "Moderate"
+    else:
+        confidence_desc = "Low"
+    
+    # Build the human-readable summary
+    lines = []
+    lines.append("=" * 60)
+    lines.append("EMAIL PRIORITY CLASSIFICATION RESULT")
+    lines.append("=" * 60)
+    lines.append("")
+    lines.append(f"Priority Level: {priority_upper}")
+    lines.append(f"Confidence: {confidence_percent}% ({confidence_desc})")
+    lines.append("")
+    lines.append("Classification Details:")
+    lines.append("-" * 60)
+    
+    # Extract key information from explanation
+    explanation_parts = explanation.split(". ")
+    for part in explanation_parts:
+        if part.strip() and not part.startswith("[TAG:") and "Confidence=" not in part:
+            lines.append(f"  • {part.strip()}")
+    
+    lines.append("")
+    lines.append("Technical Information:")
+    lines.append("-" * 60)
+    if metadata:
+        metadata_keys = list(metadata.keys())
+        lines.append(f"  • Metadata fields used: {', '.join(metadata_keys)}")
+    lines.append(f"  • Email text length: {text_length} characters")
+    
+    # Extract tag from explanation
+    if "[TAG: ML_MODEL]" in explanation:
+        lines.append("  • Classification method: Machine Learning Model")
+    elif "[TAG: RULE_BASED]" in explanation:
+        lines.append("  • Classification method: Rule-Based Heuristics")
+    
+    lines.append("")
+    lines.append("=" * 60)
+    
+    return "\n".join(lines)
+
+
 def classify_email(
     text: str,
     metadata: Optional[Dict[str, Any]] = None,
@@ -247,6 +310,15 @@ def classify_email(
 
             if metadata:
                 result["metadata_used"] = list(metadata.keys())
+            
+            # Add human-readable summary
+            result["human_readable_summary"] = format_human_readable_response(
+                priority=priority,
+                confidence=confidence,
+                explanation=explanation,
+                metadata=metadata,
+                text_length=len(text),
+            )
 
             return result
 
@@ -254,4 +326,15 @@ def classify_email(
             logger.exception("ML model failed during classification; falling back to rules.")
 
     # Fallback: rule-based classification (still with detailed explanation)
-    return _rule_based_classify(text, metadata)
+    rule_result = _rule_based_classify(text, metadata)
+    
+    # Add human-readable summary to rule-based result
+    rule_result["human_readable_summary"] = format_human_readable_response(
+        priority=rule_result["priority"],
+        confidence=rule_result["confidence"],
+        explanation=rule_result["explanation"],
+        metadata=metadata,
+        text_length=rule_result["raw_text_length"],
+    )
+    
+    return rule_result

@@ -99,6 +99,16 @@ def handle() -> tuple:
         if cached_result is not None:
             logger.info("LTM hit for task_key=%s", task_key)
             result_payload = cached_result
+            # Ensure cached results also have human_readable_summary (for backward compatibility)
+            if "human_readable_summary" not in result_payload:
+                from email_agent.priority_logic import format_human_readable_response
+                result_payload["human_readable_summary"] = format_human_readable_response(
+                    priority=result_payload.get("priority", "unknown"),
+                    confidence=result_payload.get("confidence", 0.0),
+                    explanation=result_payload.get("explanation", ""),
+                    metadata=agent_request.input.metadata,
+                    text_length=result_payload.get("raw_text_length", 0),
+                )
         else:
             logger.info("LTM miss for task_key=%s; invoking core logic", task_key)
 
@@ -116,7 +126,7 @@ def handle() -> tuple:
                 # LTM failures should not break the main flow
                 logger.exception("Failed to store result in LTM for task_key=%s", task_key)
 
-        # 4) Build a success response
+        # 4) Build a success response with properly formatted output
         agent_response = AgentResponse(
             request_id=agent_request.request_id,
             agent_name=AGENT_NAME,
@@ -125,6 +135,11 @@ def handle() -> tuple:
             output={"result": result_payload},
             error=None,
         )
+        
+        # Log the human-readable summary for debugging
+        if "human_readable_summary" in result_payload:
+            logger.info("Classification result:\n%s", result_payload["human_readable_summary"])
+        
         return jsonify(agent_response.model_dump()), 200
 
     except Exception as exc:
